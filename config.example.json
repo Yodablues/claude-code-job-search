@@ -1,0 +1,54 @@
+{
+  "profile": {
+    "name": "Your Name",
+    "level": ["Senior", "Staff", "Principal", "Lead"],
+    "role_type": "IC",
+    "open_to_management": false,
+    "stack": [
+      "TypeScript", "React", "Node.js", "Python"
+    ],
+    "differentiators": [
+      "Full-stack with frontend depth",
+      "Performance and observability experience"
+    ],
+    "willing_to_learn": ["Go"],
+    "years_experience": 8
+  },
+
+  "requirements": {
+    "min_salary": 200000,
+    "remote_only": true,
+    "us_eligible": true,
+    "keep_if_salary_undisclosed": true
+  },
+
+  "resume": {
+    "master_resume_path": "",
+    "applied_docs_dir": "",
+    "resume_filename_pattern": "Your_Name_Resume_{company}.docx",
+    "cover_letter_filename_pattern": "Your_Name_CoverLetter_{company}.docx"
+  },
+
+  "sources": {
+    "remoteok": true,
+    "remotive": true,
+    "greenhouse_tokens": [
+      "stripe", "airbnb", "discord", "cloudflare", "figma", "dropbox"
+    ],
+    "ashby_names": [
+      "Linear", "Vercel", "Notion"
+    ],
+    "lever_tokens": [
+      "netflix"
+    ]
+  },
+
+  "search_keywords": {
+    "seniority": ["senior", "staff", "principal", "lead", "sr.", "sr "],
+    "role": ["engineer", "developer", "swe", "software"],
+    "tech": ["react", "typescript", "javascript", "full stack", "fullstack",
+             "full-stack", "front-end", "frontend", "node", "python"],
+    "us_hints": ["us", "usa", "u.s", "united states", "anywhere", "worldwide",
+                 "north america", "remote"]
+  }
+}

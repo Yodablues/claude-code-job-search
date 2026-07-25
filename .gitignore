@@ -1,0 +1,4 @@
+config.json
+job_candidates.json
+__pycache__/
+*.pyc
