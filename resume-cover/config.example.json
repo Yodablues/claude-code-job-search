@@ -1,0 +1,11 @@
+{
+  "name": "Jane Doe",
+  "location": "San Francisco, CA",
+  "email": "jane@example.com",
+  "phone": "555-555-5555",
+  "linkedin": "linkedin.com/in/janedoe",
+  "website": "janedoe.dev",
+  "github": "github.com/janedoe",
+  "source_resume": "/path/to/Jane_Doe_Resume.docx",
+  "output_dir": "/path/to/output/directory"
+}
