@@ -2,69 +2,209 @@
 """
 find_jobs.py — GATHER stage for the job-search skill.
 
-Casts a wide net across remote job boards and company ATS feeds, applies a
-coarse pre-filter (seniority + engineering role + relevant tech + remote),
-and writes candidates to job_candidates.json for Claude to judge.
+This script only casts a wide net and does a coarse pre-filter (seniority +
+engineering role + relevant tech + remote). It deliberately does NOT decide fit
+quality — Claude reads the emitted snippets and judges each against the
+candidate's resume + salary bar.
 
-All configuration is read from config.json (copy config.example.json to get
-started). No third-party deps required (stdlib urllib only).
+Output: writes job_candidates.json (full records w/ snippets) next to this
+script and prints a short summary. No third-party deps (urllib only).
+Edit CONFIG to tune criteria or add companies (unknown ATS tokens are skipped).
 """
 
 import json
 import os
 import re
-import sys
 import time
 import urllib.request
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
+# ----------------------------- CONFIG ---------------------------------------
+SENIORITY = ["senior", "staff", "principal", "lead", "sr.", "sr ", "distinguished"]
+ROLE = ["engineer", "developer", "swe", "software"]
+TECH = ["vue", "react", "typescript", "javascript", "full stack", "fullstack",
+        "full-stack", "front-end", "frontend", "node", "python"]
+US_HINTS = ["us", "usa", "u.s", "united states", "anywhere", "worldwide",
+            "north america", "remote"]
 
-# ----------------------------- load config ------------------------------------
-
-def load_config():
-    if not os.path.exists(CONFIG_PATH):
-        print(f"ERROR: {CONFIG_PATH} not found.")
-        print("Copy config.example.json to config.json and fill in your details.")
-        sys.exit(1)
-    with open(CONFIG_PATH, encoding="utf-8") as f:
-        return json.load(f)
-
-
-CFG = load_config()
-
-SENIORITY = CFG.get("search_keywords", {}).get("seniority",
-    ["senior", "staff", "principal", "lead", "sr.", "sr "])
-ROLE = CFG.get("search_keywords", {}).get("role",
-    ["engineer", "developer", "swe", "software"])
-TECH = CFG.get("search_keywords", {}).get("tech",
-    ["react", "typescript", "javascript", "full stack", "fullstack",
-     "full-stack", "front-end", "frontend", "node", "python"])
-US_HINTS = CFG.get("search_keywords", {}).get("us_hints",
-    ["us", "usa", "u.s", "united states", "anywhere", "worldwide",
-     "north america", "remote"])
-
-GREENHOUSE = CFG.get("sources", {}).get("greenhouse_tokens", [])
-ASHBY = CFG.get("sources", {}).get("ashby_names", [])
-LEVER = CFG.get("sources", {}).get("lever_tokens", [])
-USE_REMOTEOK = CFG.get("sources", {}).get("remoteok", True)
-USE_REMOTIVE = CFG.get("sources", {}).get("remotive", True)
-
-RESUME_CFG = CFG.get("resume", {})
-APPLIED_DIR = RESUME_CFG.get("applied_docs_dir", "")
-RESUME_PATTERN = RESUME_CFG.get("resume_filename_pattern", "Resume_{company}.docx")
-COVER_LETTER_PATTERN = RESUME_CFG.get("cover_letter_filename_pattern", "CoverLetter_{company}.docx")
+GREENHOUSE = [
+    # --- original ---
+    "stripe", "airbnb", "reddit", "brex", "ramp", "gusto", "benchling",
+    "discord", "robinhood", "coinbase", "databricks", "cloudflare",
+    "twilio", "asana", "figma", "dropbox", "instacart", "affirm",
+    "gitlab", "hashicorp", "shopify", "datadog", "doordash", "pinterest",
+    "block", "elastic", "mongodb", "confluent", "samsara", "airtable",
+    "webflow", "contentful", "sourcegraph", "postman", "grafanalabs",
+    "render", "zapier", "retool", "mercury", "chime", "kraken", "okta",
+    "cockroachlabs", "niantic", "roblox", "unity", "gemini", "plaid",
+    # --- expanded: big tech / late-stage ---
+    "netlify", "supabase", "vercel", "deno", "fly", "railway",
+    "launchdarkly", "stytch", "axiom", "posthog", "planetscale",
+    "neon", "turso", "upstash", "convex", "clerk", "inngest",
+    "temporal", "prefect", "dagster", "modal", "anyscale", "replicate",
+    "huggingface", "anthropic", "openai", "mistral",
+    # --- fintech / payments ---
+    "marqeta", "toast", "adyen", "wise", "remitly", "melio",
+    "bill", "rippling", "justworks", "paylocity", "carta",
+    "braintree", "lithic", "moderntreasury", "column", "increase",
+    "unit", "treasuryprime", "synctera", "bond", "highnote",
+    # --- B2B SaaS / productivity ---
+    "notion", "coda", "clickup", "linear", "height", "shortcut",
+    "loom", "miro", "mural", "canva", "grammarly", "calendly",
+    "typeform", "airtable", "smartsheet", "monday", "lattice",
+    "rippling", "gusto", "deel", "remote", "oysterhr", "justworks",
+    "greenhouse", "lever", "ashbyhq", "gem", "dover",
+    # --- developer tools / infra ---
+    "hashicorp", "snyk", "sonar", "sentry", "circleci", "buildkite",
+    "pulumi", "env0", "spacelift", "firehydrant", "rootly", "blameless",
+    "pagerduty", "opsgenie", "squadcast", "honeycomb", "lightstep",
+    "chronosphere", "cribl", "mezmo", "logdna", "coralogix",
+    "launchdarkly", "split", "statsig", "eppo", "growthbook",
+    "stytch", "workos", "fusionauth", "descope", "authzed",
+    "zesty", "vantage", "cloudhealth", "spot", "cast",
+    # --- data / analytics ---
+    "dbt-labs", "fivetran", "airbyte", "census", "hightouch",
+    "hex", "mode", "sigma", "lightdash", "cube", "metabase",
+    "preset", "atlan", "alation", "collibra", "immuta",
+    "snowflake", "motherduck", "clickhouse", "timescale", "questdb",
+    # --- security ---
+    "crowdstrike", "sentinelone", "lacework", "orca", "wiz",
+    "snyk", "veracode", "checkmarx", "semgrep", "endor",
+    "bitwarden", "1password", "dashlane", "keeper",
+    # --- AI / ML companies ---
+    "scale", "labelbox", "weights-and-biases", "mlflow",
+    "pinecone", "weaviate", "qdrant", "chroma", "zilliz",
+    "langchain", "llamaindex", "fixie", "dust", "vellum",
+    "jasper", "writer", "copy-ai", "runway", "stability",
+    "midjourney", "elevenelabs", "assemblyai", "deepgram",
+    "glean", "moveworks", "adept", "cognition", "poolside",
+    # --- e-commerce / marketplace ---
+    "etsy", "poshmark", "mercari", "offerup", "depop",
+    "faire", "shein", "fanatics", "goat", "stockx",
+    "shipbob", "shippo", "easypost", "narvar",
+    # --- health tech ---
+    "oscar", "devoted", "cityblock", "ro", "hims",
+    "truepill", "capsule", "alto", "amazon-pharmacy",
+    "flatiron", "tempus", "veracyte", "grail",
+    # --- education ---
+    "duolingo", "coursera", "udemy", "masterclass", "khan",
+    "replit", "codecademy", "brilliant",
+    # --- misc remote-friendly ---
+    "automattic", "zapier", "buffer", "doist", "toggl",
+    "hotjar", "convertkit", "transistor", "fathom",
+    "fly", "render", "railway", "coolify",
+    "planetscale", "neon", "xata", "turso",
+    "expo", "eas", "tamagui", "nativewind",
+]
+ASHBY = [
+    # --- original ---
+    "Gray Swan AI", "Linear", "Vercel", "Replit",
+    "Retool", "Mercury", "Perplexity AI", "Cursor", "Cohere", "Notion", "Deel",
+    # --- expanded ---
+    "Ramp", "Anthropic", "OpenAI", "Mistral AI", "Anduril",
+    "Supabase", "PostHog", "Deno", "Clerk", "Convex",
+    "Inngest", "Axiom", "Neon", "Turso", "Upstash",
+    "Fly.io", "Railway", "Render", "Coolify",
+    "Stytch", "WorkOS", "Descope", "AuthZed",
+    "Warp", "Fig", "Zed", "GitButler",
+    "Temporal", "Prefect", "Dagster", "Modal",
+    "Dust", "Vellum", "LangChain", "LlamaIndex",
+    "Glean", "Harvey", "Casetext", "EvenUp",
+    "Weights & Biases", "Pinecone", "Weaviate", "Chroma",
+    "AssemblyAI", "Deepgram", "ElevenLabs", "Stability AI",
+    "Scale AI", "Labelbox", "Replicate", "Together AI",
+    "Braintrust", "Humanloop", "Helicone", "Langfuse",
+    "Resend", "Loops", "Svix", "Knock", "Novu",
+    "Cal.com", "Formbricks", "Documenso", "Eraser",
+    "Doppler", "Infisical", "GitGuardian",
+    "Secureframe", "Drata", "Vanta", "Launchnotes",
+    "Hightouch", "Census", "Rudderstack", "Segment",
+    "Hex", "Sigma Computing", "Lightdash", "Cube",
+    "Atlan", "Monte Carlo", "Bigeye", "Metaplane",
+    "Flatfile", "OneSchema", "Osmos",
+    "Plain", "Intercom", "Front", "Missive",
+    "Stripe", "Plaid", "Unit", "Lithic", "Increase",
+    "Modern Treasury", "Column", "Synctera", "Highnote",
+    "Carta", "Pulley", "AngelList", "Wellfound",
+    "Remote", "Oyster", "Deel", "Plane",
+    "Lattice", "Culture Amp", "15Five", "Leapsome",
+    "Ashby", "Gem", "Dover", "Greenhouse",
+    "Liveblocks", "Tldraw", "Excalidraw",
+    "Trigger.dev", "Defer", "Qstash",
+    "Mintlify", "ReadMe", "Stoplight", "Bump.sh",
+    "Grafbase", "Hasura", "Stellate", "WunderGraph",
+    "EdgeDB", "SurrealDB", "CockroachDB",
+    "PlanetScale", "Xata", "Fauna",
+]
+LEVER = [
+    # --- original ---
+    "veeva", "plaid", "netflix", "nerdwallet", "attentive", "gopuff",
+    # --- expanded ---
+    "netlify", "sanity", "contentful", "strapi", "storyblok",
+    "algolia", "typesense", "meilisearch",
+    "auth0", "okta", "onelogin",
+    "twilio", "sendgrid", "messagebird", "vonage",
+    "segment", "amplitude", "mixpanel", "heap", "fullstory",
+    "launchdarkly", "split", "statsig", "optimizely",
+    "fastly", "akamai", "bunny",
+    "circleci", "semaphore", "harness", "codefresh",
+    "sonarqube", "codeclimate", "deepsource",
+    "snyk", "bridgecrew", "checkov",
+    "tailscale", "twingate", "zscaler",
+    "loom", "pitch", "gamma", "beautiful",
+    "calendly", "savvycal", "reclaim",
+    "linear", "shortcut", "clickup", "height",
+    "notion", "coda", "slite",
+    "figma", "framer", "webflow", "bubble",
+    "retool", "internal", "appsmith", "tooljet",
+    "supabase", "firebase", "convex",
+    "prisma", "drizzle", "kysely",
+    "vercel", "netlify", "render", "railway",
+    "fly", "modal", "replicate", "banana",
+    "weights-and-biases", "comet", "neptune",
+    "huggingface", "roboflow", "labelbox",
+    "jasper", "writer", "copy-ai", "anyword",
+    "grammarly", "textio", "hemingway",
+    "wise", "remitly", "airwallex", "payoneer",
+    "marqeta", "lithic", "highnote", "unit",
+    "brex", "divvy", "ramp", "airbase",
+    "toast", "square", "clover", "lightspeed",
+    "shopify", "bigcommerce", "swell", "medusa",
+    "faire", "handshake", "firstbase",
+    "calm", "headspace", "noom", "peloton",
+    "duolingo", "coursera", "udemy", "skillshare",
+    "automattic", "ghost", "substack", "beehiiv",
+    "doist", "todoist", "toggl", "clockify",
+    "buffer", "hootsuite", "sprout", "later",
+    "hotjar", "smartlook", "mouseflow", "clarity",
+    "convertkit", "mailchimp", "customer-io", "braze",
+    "intercom", "zendesk", "freshworks", "helpscout",
+    "pagerduty", "opsgenie", "betteruptime",
+    "sentry", "bugsnag", "rollbar", "raygun",
+    "datadog", "newrelic", "dynatrace", "elastic",
+    "hashicorp", "pulumi", "crossplane", "env0",
+    "terraform", "spacelift", "scalr",
+    "docker", "rancher", "portainer",
+    "gitpod", "codespaces", "coder", "devpod",
+    "doppler", "infisical", "vault",
+    "tailscale", "ngrok", "cloudflared",
+]
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
       "Accept": "application/json,text/plain,*/*"}
 TIMEOUT = 20
-RETRIES = 3
+RETRIES = 3                # retry transient failures / rate limits with backoff
+# Companies manually marked as already applied (no tailored doc on disk)
+MANUAL_APPLIED = {"grafana", "grafanalabs", "github"}
+# Directory scanned to auto-exclude companies already applied to (tailored docs present)
+APPLIED_DIR = r"C:\Users\comph\Documents"
+# Filename suffix tokens that are role descriptors / housekeeping, not companies
+EXCLUDE_STOPWORDS = {"backup", "principal", "stafffrontend", "master"}
 SNIPPET_LEN = 700
+# ----------------------------------------------------------------------------
 
-# ----------------------------- helpers ----------------------------------------
 
 def get(url):
     last = None
@@ -72,7 +212,7 @@ def get(url):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=TIMEOUT) as r:
                 return r.read().decode("utf-8", "replace")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 - transient (rate limit / network); back off
             last = e
             time.sleep(1.5 * (attempt + 1))
     raise last
@@ -82,35 +222,23 @@ def _norm(s):
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
-def _extract_company_from_filename(filename):
-    """Extract company token from a resume/cover-letter filename using the configured patterns."""
-    for pattern in [RESUME_PATTERN, COVER_LETTER_PATTERN]:
-        # Turn "Name_Resume_{company}.docx" into a regex
-        escaped = re.escape(pattern).replace(r"\{company\}", r"(.+)")
-        m = re.match(escaped, filename, re.I)
-        if m:
-            return _norm(m.group(1))
-    return None
-
-
 def applied_tokens():
     """Company tokens from tailored docs in APPLIED_DIR, to skip already-applied roles."""
-    if not APPLIED_DIR or not os.path.isdir(APPLIED_DIR):
-        return set()
     toks = set()
     try:
         for fn in os.listdir(APPLIED_DIR):
-            tok = _extract_company_from_filename(fn)
-            if tok:
-                toks.add(tok)
+            m = re.match(r"Tom_Colarusso_(?:Resume|CoverLetter)_(.+)\.docx$", fn, re.I)
+            if m:
+                tok = _norm(m.group(1))
+                if tok and tok not in EXCLUDE_STOPWORDS:
+                    toks.add(tok)
     except Exception:
         pass
+    toks.update(MANUAL_APPLIED)
     return toks
 
 
 def is_applied(company, toks):
-    if not toks:
-        return False
     c = _norm(company)
     return bool(c) and any(len(t) >= 4 and (t in c or c in t) for t in toks)
 
@@ -152,8 +280,7 @@ def rec(title, company, desc, url, source, location, salary_text=""):
     }
 
 
-# ------------------------------ sources ---------------------------------------
-
+# ------------------------------ sources -------------------------------------
 def from_remoteok():
     out = []
     try:
@@ -240,12 +367,8 @@ def from_lever(token):
 
 def main():
     jobs = []
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        futs = []
-        if USE_REMOTEOK:
-            futs.append(ex.submit(from_remoteok))
-        if USE_REMOTIVE:
-            futs.append(ex.submit(from_remotive))
+    with ThreadPoolExecutor(max_workers=32) as ex:
+        futs = [ex.submit(from_remoteok), ex.submit(from_remotive)]
         futs += [ex.submit(from_greenhouse, t) for t in GREENHOUSE]
         futs += [ex.submit(from_ashby, n) for n in ASHBY]
         futs += [ex.submit(from_lever, t) for t in LEVER]
@@ -262,23 +385,22 @@ def main():
             seen.add(k)
             uniq.append(j)
 
-    # drop companies already applied to
+    # drop companies already applied to (tailored docs on disk)
     toks = applied_tokens()
     excluded = sorted({j["company"] for j in uniq if is_applied(j["company"], toks)})
     uniq = [j for j in uniq if not is_applied(j["company"], toks)]
     uniq.sort(key=lambda x: (-(x["salary"] or 0), x["company"]))
 
-    out_path = os.path.join(SCRIPT_DIR, "job_candidates.json")
+    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "job_candidates.json")
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(uniq, fh, indent=2)
 
     by_src = {}
     for j in uniq:
         by_src[j["source"]] = by_src.get(j["source"], 0) + 1
-    print(f"Gathered {len(uniq)} coarse-matched candidates by source: {by_src}")
+    print(f"Gathered {len(uniq)} coarse-matched candidates (after exclusions) by source: {by_src}")
     print(f"With disclosed salary: {sum(1 for j in uniq if j['salary'])}")
-    if excluded:
-        print(f"Excluded (already applied): {', '.join(excluded)}")
+    print(f"Excluded (already applied): {', '.join(excluded) if excluded else 'none'}")
     print(f"JSON written to: {out_path}")
     print("Next: Claude reads job_candidates.json and judges fit per record.")
 
