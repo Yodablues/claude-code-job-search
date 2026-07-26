@@ -196,12 +196,12 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
       "Accept": "application/json,text/plain,*/*"}
 TIMEOUT = 20
 RETRIES = 3                # retry transient failures / rate limits with backoff
-# Companies manually marked as already applied (no tailored doc on disk)
-MANUAL_APPLIED = {"grafana", "grafanalabs", "github"}
+# Companies manually marked as already applied (add your own)
+MANUAL_APPLIED = set()
 # Directory scanned to auto-exclude companies already applied to (tailored docs present)
-APPLIED_DIR = r"C:\Users\comph\Documents"
+APPLIED_DIR = ""
 # Filename suffix tokens that are role descriptors / housekeeping, not companies
-EXCLUDE_STOPWORDS = {"backup", "principal", "stafffrontend", "master"}
+EXCLUDE_STOPWORDS = {"backup", "principal", "master"}
 SNIPPET_LEN = 700
 # ----------------------------------------------------------------------------
 

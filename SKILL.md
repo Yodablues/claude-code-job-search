@@ -1,34 +1,33 @@
 ---
 name: job-search
-description: Find and triage remote senior/staff software engineering jobs for Tom Colarusso. Use whenever Tom says "find me jobs", "go find jobs", "any new roles", "search for jobs", or wants a fresh batch of job matches to review. Gathers postings from remote boards + company ATS feeds, filters to real fits against his resume and salary bar, and drives a one-by-one apply/reject triage.
+description: Find and triage remote software engineering jobs. Gathers postings from remote boards + company ATS feeds, filters to real fits against the user's resume and salary requirements, and drives a one-by-one apply/reject triage.
 ---
 
 # Job Search & Triage
 
-Tom's ask: **"Claude, go find me jobs."** Do the searching, throw out bad matches
-against his resume + pay bar, return a curated shortlist, then work them one-by-one
-(apply or reject). Never auto-apply — applying is always Tom's explicit call.
+The user's ask: **"Claude, go find me jobs."** Do the searching, throw out bad
+matches against their profile + pay bar, return a curated shortlist, then work
+them one-by-one (apply or reject). Never auto-apply — applying is always the
+user's explicit call.
 
-## Tom's profile (judge fit against this)
+## User profile
 
-- **Level:** Senior / Staff / Principal / Lead (IC). Open to Eng Manager too.
-- **Stack:** Full-stack. Frontend-strong. **Vue + deep TypeScript** primary;
-  **hands-on Python (FastAPI)**, C#/.NET, Node.js; **REST & GraphQL**; NoSQL
-  (RavenDB/Redis); AWS (Lambda/serverless); Tailwind + Bootstrap; WCAG 2.1 AA
-  accessibility; Vitest/Playwright/Storybook.
-- **Differentiators:** frontend-platform / developer-productivity leadership
-  (org-wide standards for 100+ engineers, 100+ component library); **Claude Code
-  power user** who builds agentic AI tooling (skills, subagents, MCP servers,
-  workflows); observability/performance (Datadog RUM/APM); 13+ yrs, B2B/fintech.
-- **React:** willing to learn; currently ramping. Vue-first.
+Before running, you need the user's profile. Check if a config or memory
+contains their details, or ask them directly for:
 
-## Hard requirements (Tom's criteria)
+- **Level:** target seniority (e.g. Senior / Staff / Principal / Lead)
+- **Stack:** primary languages, frameworks, and tools
+- **Differentiators:** what sets them apart (leadership scope, domain expertise, etc.)
+- **Minimum salary:** base compensation floor
+- **Location:** remote preference and country/region eligibility
 
-1. **Salary $200k+** (base). If undisclosed, keep only if the level/company makes
-   $200k+ plausible (most staff roles do) and flag as "salary unconfirmed".
-2. **Fully remote**, US-eligible. Drop hybrid/onsite-only and non-US-only roles
-   (flag any where US eligibility is unclear).
-3. **Senior/Staff-level** engineering role that genuinely uses his stack.
+## Hard requirements
+
+1. **Salary** at or above the user's minimum (base). If undisclosed, keep only
+   if the level/company makes it plausible — flag as "salary unconfirmed".
+2. **Fully remote**, eligible for the user's location. Drop hybrid/onsite-only
+   and ineligible-location roles (flag any where eligibility is unclear).
+3. **Appropriate level** engineering role that genuinely uses the user's stack.
 
 ## Workflow
 
@@ -37,24 +36,31 @@ against his resume + pay bar, return a curated shortlist, then work them one-by-
    It writes `job_candidates.json` (coarse keyword matches + description snippets +
    salary + links). This stage is dumb on purpose.
 2. **Judge (this is the real value).** Read `job_candidates.json`. For each record,
-   read the snippet and decide true fit against Tom's profile + hard requirements.
+   read the snippet and decide true fit against the user's profile + hard requirements.
    **Aggressively drop garbage:** wrong level, non-remote, obvious stack mismatch
    (e.g. pure mobile/ML/embedded/Salesforce), staffing-agency spam, duplicates,
-   sub-$200k when salary is disclosed. Prefer precision over volume — a tight list
-   of real fits beats a long noisy one.
+   sub-minimum-salary when salary is disclosed. Prefer precision over volume — a tight
+   list of real fits beats a long noisy one.
 3. **Return a ranked shortlist.** For each survivor, one line:
    `Title @ Company — $salary (or "salary unconfirmed") — 1-phrase why it fits — link`.
-   Rank by fit strength. Note any caveats (React-heavy, scope stretch, US-eligibility
+   Rank by fit strength. Note any caveats (stack stretch, scope stretch, eligibility
    unclear). If the snippet is too thin to judge, fetch the full JD (Greenhouse/Ashby/
    Lever API or WebFetch) before deciding.
-4. **Triage one-by-one.** Go through the shortlist with Tom. For each: **apply** or
-   **reject**. Keep it quick.
-5. **On "apply":** tailor from the master resume `C:\Users\comph\Documents\Tom_Colarusso_Resume.docx`
-   using python-docx (copy -> edit summary/skills/bullets to the JD, save as
-   `Tom_Colarusso_Resume_<Company>.docx`). Offer a matching cover letter (same
-   letterhead builder, with live LinkedIn/website/GitHub/email links). Be honest —
-   never fabricate skills; surface real gaps and flag anything that needs Tom's
+4. **Triage one-by-one.** Go through the shortlist with the user. For each: **apply**
+   or **reject**. Keep it quick.
+5. **On "apply":** tailor from the user's master resume using python-docx (copy -> edit
+   summary/skills/bullets to the JD). Offer a matching cover letter. Be honest — never
+   fabricate skills; surface real gaps and flag anything that needs the user's
    confirmation.
+
+## Configuration
+
+Edit the CONFIG section at the top of `find_jobs.py` to customize:
+
+- `SENIORITY`, `ROLE`, `TECH` — coarse keyword filters for titles and descriptions
+- `GREENHOUSE`, `ASHBY`, `LEVER` — company ATS tokens (unknown tokens are skipped safely)
+- `MANUAL_APPLIED` — set of company name tokens to exclude (already applied)
+- `APPLIED_DIR` — directory to scan for tailored resume/cover letter docs (auto-exclusion)
 
 ## Notes / maintenance
 
